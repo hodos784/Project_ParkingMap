@@ -1,6 +1,6 @@
 const VWORLD_KEY = "590391A6-092B-4FDF-BF48-0D94CAFB720D";
 
-const map = L.map('map').setView([37.5665, 126.9780], 11);
+const map = L.map('map', { doubleClickZoom: false }).setView([37.5665, 126.9780], 11);
 
 // --- 배경지도: VWorld 백지도 ---
 L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/white/{z}/{y}/{x}.png`, {
@@ -73,7 +73,7 @@ fetch('data/gu_parking.geojson')
         layer.bindPopup(`<b>${f.properties.name}</b><br>총 주차면수: ${(f.properties.total_spaces || 0).toLocaleString()}면`);
         layer.on('mouseover', highlightFeature);
         layer.on('mouseout', e => guLayer.resetStyle(e.target));
-        layer.on('click', () => map.fitBounds(layer.getBounds()));
+        layer.on('dblclick', () => map.fitBounds(layer.getBounds()));
       }
     }).addTo(map);
   });
