@@ -3,7 +3,7 @@ const VWORLD_KEY = "590391A6-092B-4FDF-BF48-0D94CAFB720D";
 const map = L.map('map').setView([37.5665, 126.9780], 11);
 
 // --- 배경지도: VWorld 백지도(gray) - 색칠한 구역이 잘 보이도록 무채색 지도 사용 ---
-L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/gray/{z}/{y}/{x}.png`, {
+L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/white/{z}/{y}/{x}.png`, {
   attribution: '&copy; VWorld (국토교통부 국토지리정보원)',
   maxZoom: 19
 }).addTo(map);
