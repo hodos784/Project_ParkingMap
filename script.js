@@ -100,13 +100,21 @@ function showDongLayerForGu(guName) {
   currentDongGu = guName;
 }
 
-// --- 개별 주차장 마커: 클러스터링 적용 ---
+// --- 개별 주차장 마커: P 아이콘 + 클러스터링 ---
+const parkingIcon = L.divIcon({
+  className: 'parking-marker',
+  html: '<div class="parking-pin">P</div>',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+  popupAnchor: [0, -13]
+});
+
 fetch('data/parking_lots_seoul.geojson')
   .then(r => r.json())
   .then(geo => {
     lotLayer = L.markerClusterGroup({ maxClusterRadius: 50 });
     const points = L.geoJSON(geo, {
-      pointToLayer: (f, latlng) => L.circleMarker(latlng, { radius: 6, fillColor: '#e34a33', color: '#fff', weight: 1.5, fillOpacity: 0.9 }),
+      pointToLayer: (f, latlng) => L.marker(latlng, { icon: parkingIcon }),
       onEachFeature: (f, layer) => {
         layer.bindPopup(`<b>${f.properties.name}</b><br>${f.properties.spaces}면<br><small>${f.properties.address || ''}</small>`);
       }
