@@ -1,235 +1,345 @@
 (function () {
   "use strict";
 
-  var DATA_URL = "data/parking_lots_seoul.geojson";
+  var GU_URL = "data/gu_parking.geojson";
+  var DONG_URL = "data/dong_parking.geojson";
+  var LOTS_URL = "data/parking_lots_seoul.geojson";
 
-  var sidebar = document.getElementById("sidebar");
-  var menuBtn = document.getElementById("menuBtn");
-  menuBtn.addEventListener("click", function () {
-    sidebar.classList.toggle("open");
-  });
+  var BIN = 2500;          // 2,500면 단위로 끊어서 색상 진하기 표시
+  var MARKER_ZOOM = 15;    // 이 줌 레벨부터 개별 주차장 위치 표시
+  var CITY_ZOOM = 12;      // 이 줌 레벨보다 아래로 내려가면 자치구 뷰로 자동 복귀
 
-  var map = L.map("map", { zoomControl: false, attributionControl: true }).setView(
-    [37.5665, 126.978],
-    11
+  var SEOUL_CENTER = [37.5665, 126.978];
+  var SEOUL_ZOOM = 11;
+
+  // ---------- map & base tiles (OpenStreetMap) ----------
+  var map = L.map("map", { zoomControl: false, doubleClickZoom: false }).setView(
+    SEOUL_CENTER,
+    SEOUL_ZOOM
   );
   L.control.zoom({ position: "bottomleft" }).addTo(map);
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
-    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+    attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
 
-  var cluster = L.markerClusterGroup({
-    maxClusterRadius: 46,
-    spiderfyOnMaxZoom: true,
-    iconCreateFunction: function (c) {
-      var n = c.getChildCount();
-      var size = n < 10 ? 32 : n < 50 ? 40 : 48;
-      return L.divIcon({
-        html:
-          '<div class="pm-cluster" style="width:' +
-          size +
-          "px;height:" +
-          size +
-          "px;font-size:" +
-          size * 0.34 +
-          'px;">' +
-          n +
-          "</div>",
-        className: "",
-        iconSize: [size, size],
-      });
-    },
-  });
-  map.addLayer(cluster);
+  // ---------- sequential color ramp: one hue (accent green), light -> dark ----------
+  // magnitude is bucketed into BIN(=2,500면) steps before mapping to lightness,
+  // so the fill genuinely steps rather than reading as continuous.
+  function greenFor(t) {
+    t = Math.max(0, Math.min(1, t));
+    var s = 22 + t * 40; // 22% -> 62% saturation
+    var l = 90 - t * 66; // 90% -> 24% lightness
+    return "hsl(165, " + s.toFixed(1) + "%, " + l.toFixed(1) + "%)";
+  }
 
-  var ALL = []; // flattened records: {n, s, a, t, c, g, d, dt, lat, lng}
-  var state = { q: "", cat: "all", type: "all", gu: "all" };
+  function binValue(v) {
+    return Math.floor((v || 0) / BIN) * BIN;
+  }
+
+  // builds a color-getter scaled to the min/max *within the given feature set*
+  function makeScale(features, propGetter) {
+    var bins = features
+      .map(function (f) {
+        var v = propGetter(f);
+        return v == null ? null : binValue(v);
+      })
+      .filter(function (v) {
+        return v != null;
+      });
+    var min = bins.length ? Math.min.apply(null, bins) : 0;
+    var max = bins.length ? Math.max.apply(null, bins) : BIN;
+    if (max === min) max = min + BIN;
+    return {
+      min: min,
+      max: max,
+      color: function (v) {
+        if (v == null) return "#cccccc";
+        var b = binValue(v);
+        var t = (b - min) / (max - min);
+        return greenFor(t);
+      },
+    };
+  }
 
   function fmt(n) {
     return (n || 0).toLocaleString("ko-KR");
   }
-
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (m) {
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m];
     });
   }
 
-  function makeIcon(cat) {
-    var cls = cat === "민영" ? "private" : "public";
-    return L.divIcon({
-      className: "",
-      html: '<div class="pm-pin ' + cls + '"></div>',
-      iconSize: [14, 14],
-      iconAnchor: [7, 14],
-      popupAnchor: [0, -14],
-    });
+  // ---------- HUD ----------
+  var hudTitle = document.getElementById("hudTitle");
+  var hudSpaces = document.getElementById("hudSpaces");
+  var hudSpacesLbl = document.getElementById("hudSpacesLbl");
+  var backBtn = document.getElementById("backBtn");
+  var hint = document.getElementById("hint");
+  var legendTitle = document.getElementById("legendTitle");
+  var rampEl = document.getElementById("ramp");
+  var rampMin = document.getElementById("rampMin");
+  var rampMax = document.getElementById("rampMax");
+
+  function setHud(title, spaces, label) {
+    hudTitle.textContent = title;
+    hudSpaces.textContent = spaces == null ? "–" : fmt(spaces) + "면";
+    hudSpacesLbl.textContent = label;
   }
 
-  function popupHtml(p) {
-    var badgeCls = p.c === "민영" ? "private" : "public";
-    return (
-      '<div class="pop-name">' + esc(p.n) + "</div>" +
-      '<div class="pop-row">' + esc(p.a || p.g + " " + p.d) + "</div>" +
-      '<div class="pop-row">주차면수 · <b>' + fmt(p.s) + "면</b></div>" +
-      '<div class="pop-row">' + esc(p.g) + " " + esc(p.d) + " · " + esc(p.t) + "</div>" +
-      (p.dt ? '<div class="pop-row" style="opacity:.7">데이터 기준일 ' + esc(p.dt) + "</div>" : "") +
-      '<span class="pop-badge ' + badgeCls + '">' + esc(p.c) + "</span>"
-    );
+  function setLegend(title, scale) {
+    legendTitle.textContent = title;
+    rampEl.style.background =
+      "linear-gradient(to right, " + greenFor(0) + ", " + greenFor(1) + ")";
+    rampMin.textContent = fmt(scale.min) + "면";
+    rampMax.textContent = fmt(scale.max) + "면+";
   }
 
-  function passes(p) {
-    if (state.cat !== "all" && p.c !== state.cat) return false;
-    if (state.type !== "all" && p.t !== state.type) return false;
-    if (state.gu !== "all" && p.g !== state.gu) return false;
-    if (state.q) {
-      var hay = (p.n + " " + p.a + " " + p.g + " " + p.d).toLowerCase();
-      if (hay.indexOf(state.q.toLowerCase()) === -1) return false;
-    }
-    return true;
-  }
-
-  function render() {
-    cluster.clearLayers();
-    var listEl = document.getElementById("list");
-    listEl.innerHTML = "";
-    var count = 0,
-      spaces = 0;
-    var frag = document.createDocumentFragment();
-    var shown = [];
-
-    for (var i = 0; i < ALL.length; i++) {
-      var p = ALL[i];
-      if (!passes(p)) continue;
-      count++;
-      spaces += p.s || 0;
-      shown.push(p);
-    }
-
-    shown.sort(function (a, b) {
-      return b.s - a.s;
+  // ---------- click vs. double-click (map's own dblclick zoom is disabled above) ----------
+  function bindClickAndDblClick(layer, onClick, onDblClick) {
+    var t = null;
+    layer.on("click", function (e) {
+      if (t) return; // this click is part of a dblclick sequence already scheduled
+      t = setTimeout(function () {
+        t = null;
+        onClick(e);
+      }, 260);
     });
-
-    var mk = [];
-    for (var j = 0; j < shown.length; j++) {
-      var p2 = shown[j];
-      var m = L.marker([p2.lat, p2.lng], { icon: makeIcon(p2.c) });
-      m.bindPopup(popupHtml(p2), { maxWidth: 260 });
-      mk.push(m);
-    }
-    cluster.addLayers(mk);
-
-    document.getElementById("statCount").textContent = fmt(count);
-    document.getElementById("statSpaces").textContent = fmt(spaces);
-    document.getElementById("listTitle").textContent =
-      "목록 · 면수 많은 순 (" + fmt(count) + "건)";
-
-    var top = shown.slice(0, 120);
-    if (top.length === 0) {
-      var d = document.createElement("div");
-      d.className = "empty";
-      d.textContent = "조건에 맞는 주차장이 없습니다.";
-      frag.appendChild(d);
-    }
-    top.forEach(function (p3) {
-      var b = document.createElement("button");
-      b.className = "row";
-      b.innerHTML =
-        '<span class="rn">' + esc(p3.n) + "</span>" +
-        '<span class="rm"><span class="tag' + (p3.c === "민영" ? " priv" : "") + '"></span>' +
-        esc(p3.g) + " " + esc(p3.d) + " · " + fmt(p3.s) + "면 · " + esc(p3.t) + "</span>";
-      b.addEventListener("click", function () {
-        map.setView([p3.lat, p3.lng], 17, { animate: true });
-        setTimeout(function () {
-          L.popup({ maxWidth: 260 }).setLatLng([p3.lat, p3.lng]).setContent(popupHtml(p3)).openOn(map);
-        }, 350);
-        if (window.innerWidth <= 760) sidebar.classList.remove("open");
-      });
-      frag.appendChild(b);
-    });
-    if (shown.length > 120) {
-      var more = document.createElement("div");
-      more.className = "empty";
-      more.textContent = "+ " + fmt(shown.length - 120) + "건 더 (지도에는 모두 표시됨)";
-      frag.appendChild(more);
-    }
-    listEl.appendChild(frag);
-  }
-
-  // GeoJSON FeatureCollection -> flat records
-  function flatten(geojson) {
-    return (geojson.features || [])
-      .filter(function (f) {
-        return f.geometry && f.geometry.type === "Point";
-      })
-      .map(function (f) {
-        var p = f.properties || {};
-        var coords = f.geometry.coordinates; // [lng, lat]
-        return {
-          n: p.name,
-          s: Number(p.spaces) || 0,
-          a: p.address || "",
-          t: p.type || "",
-          c: p.category || "",
-          g: (p.gu || "").replace("(근사)", ""),
-          d: (p.dong || "").replace("(근사)", ""),
-          dt: p.data_date || "",
-          lat: coords[1],
-          lng: coords[0],
-        };
-      });
-  }
-
-  function boot(geojson) {
-    ALL = flatten(geojson);
-
-    var gus = Array.from(new Set(ALL.map(function (p) { return p.g; })))
-      .filter(Boolean)
-      .sort(function (a, b) { return a.localeCompare(b, "ko"); });
-    var sel = document.getElementById("guSel");
-    gus.forEach(function (g) {
-      var o = document.createElement("option");
-      o.value = g;
-      o.textContent = g;
-      sel.appendChild(o);
-    });
-
-    document.getElementById("q").addEventListener("input", function (e) {
-      state.q = e.target.value.trim();
-      render();
-    });
-    document.getElementById("typeSel").addEventListener("change", function (e) {
-      state.type = e.target.value;
-      render();
-    });
-    sel.addEventListener("change", function (e) {
-      state.gu = e.target.value;
-      if (e.target.value === "all") {
-        map.setView([37.5665, 126.978], 11);
+    layer.on("dblclick", function (e) {
+      if (t) {
+        clearTimeout(t);
+        t = null;
       }
-      render();
+      L.DomEvent.stopPropagation(e);
+      onDblClick(e);
     });
-    document.querySelectorAll("#catChips .chip").forEach(function (chip) {
-      chip.addEventListener("click", function () {
-        document.querySelectorAll("#catChips .chip").forEach(function (c) {
-          c.classList.remove("active");
-        });
-        chip.classList.add("active");
-        state.cat = chip.getAttribute("data-cat");
-        render();
-      });
-    });
-
-    render();
   }
 
-  fetch(DATA_URL)
-    .then(function (r) { return r.json(); })
-    .then(boot)
+  // ---------- state ----------
+  var mode = "city"; // "city" | "gu"
+  var currentGu = null;
+  var guLayer = null;
+  var dongLayer = null;
+  var lotsCluster = null;
+  var guFeatures = [];
+  var dongFeatures = [];
+  var lotFeatures = [];
+  var citySpacesTotal = 0;
+  var guScale = null;
+
+  function guName(f) {
+    return f.properties.name;
+  }
+  function guSpaces(f) {
+    return f.properties.total_spaces;
+  }
+  function dongName(f) {
+    return f.properties.name;
+  }
+  function dongSpaces(f) {
+    return f.properties.total_spaces;
+  }
+
+  // ---------- gu (city-wide) layer ----------
+  function buildGuLayer() {
+    guScale = makeScale(guFeatures, guSpaces);
+    guLayer = L.geoJSON(
+      { type: "FeatureCollection", features: guFeatures },
+      {
+        className: "gu-outline",
+        style: function (f) {
+          return {
+            className: "gu-outline",
+            color: "#ffffff",
+            weight: 1.4,
+            fillColor: guScale.color(guSpaces(f)),
+            fillOpacity: 0.88,
+          };
+        },
+        onEachFeature: function (f, layer) {
+          layer.on("mouseover", function () {
+            layer.setStyle({ weight: 2.4 });
+          });
+          layer.on("mouseout", function () {
+            layer.setStyle({ weight: 1.4 });
+          });
+          bindClickAndDblClick(
+            layer,
+            function (e) {
+              L.popup({ maxWidth: 220 })
+                .setLatLng(e.latlng)
+                .setContent(
+                  '<div class="pop-name">' + esc(guName(f)) + "</div>" +
+                    '<div class="pop-row">주차 가능면수 · <b>' + fmt(guSpaces(f)) + "면</b></div>"
+                )
+                .openOn(map);
+            },
+            function () {
+              drillIntoGu(f);
+            }
+          );
+        },
+      }
+    ).addTo(map);
+  }
+
+  function showCity() {
+    mode = "city";
+    currentGu = null;
+    if (dongLayer) {
+      map.removeLayer(dongLayer);
+      dongLayer = null;
+    }
+    if (guLayer) map.addLayer(guLayer);
+    backBtn.hidden = true;
+    hint.textContent = "행정구를 클릭하면 면수가 표시됩니다 · 더블클릭하면 동별로 확대됩니다";
+    setHud("서울 전체", citySpacesTotal, "총 주차가능면수 (25개 자치구)");
+    setLegend("자치구별 주차면수", guScale);
+    map.setView(SEOUL_CENTER, SEOUL_ZOOM);
+  }
+
+  function drillIntoGu(f) {
+    mode = "gu";
+    currentGu = guName(f);
+    if (guLayer) map.removeLayer(guLayer);
+
+    var subset = dongFeatures.filter(function (d) {
+      return d.properties.gu === currentGu;
+    });
+    var dScale = makeScale(subset, dongSpaces);
+
+    dongLayer = L.geoJSON(
+      { type: "FeatureCollection", features: subset },
+      {
+        style: function (d) {
+          return {
+            color: "#ffffff",
+            weight: 1,
+            fillColor: dScale.color(dongSpaces(d)),
+            fillOpacity: 0.88,
+          };
+        },
+        onEachFeature: function (d, layer) {
+          layer.on("mouseover", function () {
+            layer.setStyle({ weight: 2 });
+          });
+          layer.on("mouseout", function () {
+            layer.setStyle({ weight: 1 });
+          });
+          bindClickAndDblClick(
+            layer,
+            function (e) {
+              L.popup({ maxWidth: 220 })
+                .setLatLng(e.latlng)
+                .setContent(
+                  '<div class="pop-name">' + esc(dongName(d)) + "</div>" +
+                    '<div class="pop-row">' + esc(currentGu) + "</div>" +
+                    '<div class="pop-row">주차 가능면수 · <b>' + fmt(dongSpaces(d)) + "면</b></div>"
+                )
+                .openOn(map);
+            },
+            function () {
+              map.flyToBounds(layer.getBounds(), { maxZoom: MARKER_ZOOM + 1, duration: 0.6 });
+            }
+          );
+        },
+      }
+    ).addTo(map);
+
+    backBtn.hidden = false;
+    hint.textContent = "동을 클릭하면 면수가 표시됩니다 · 더 확대하면 개별 주차장이 표시됩니다";
+    setHud(currentGu, guSpaces(f), "총 주차가능면수 (" + subset.length + "개 동)");
+    setLegend(currentGu + " 동별 주차면수", dScale);
+
+    if (dongLayer.getBounds().isValid()) {
+      map.flyToBounds(dongLayer.getBounds(), { padding: [24, 24], duration: 0.6 });
+    }
+  }
+
+  backBtn.addEventListener("click", showCity);
+
+  // ---------- individual parking lots (shown once zoomed in) ----------
+  function buildLotsLayer() {
+    lotsCluster = L.markerClusterGroup({
+      maxClusterRadius: 40,
+      spiderfyOnMaxZoom: true,
+      iconCreateFunction: function (c) {
+        var n = c.getChildCount();
+        var size = n < 10 ? 30 : 38;
+        return L.divIcon({
+          html:
+            '<div class="pm-cluster" style="width:' + size + "px;height:" + size +
+            "px;font-size:" + size * 0.36 + 'px;">' + n + "</div>",
+          className: "",
+          iconSize: [size, size],
+        });
+      },
+    });
+
+    lotFeatures.forEach(function (f) {
+      var p = f.properties || {};
+      var coords = f.geometry.coordinates; // [lng, lat]
+      var cat = p.category === "민영" ? "private" : "public";
+      var icon = L.divIcon({
+        className: "",
+        html: '<div class="pm-pin ' + cat + '"></div>',
+        iconSize: [14, 14],
+        iconAnchor: [7, 14],
+        popupAnchor: [0, -14],
+      });
+      var m = L.marker([coords[1], coords[0]], { icon: icon });
+      var badgeCls = cat === "private" ? "private" : "public";
+      m.bindPopup(
+        '<div class="pop-name">' + esc(p.name) + "</div>" +
+          '<div class="pop-row">' + esc(p.address || (p.gu + " " + p.dong)) + "</div>" +
+          '<div class="pop-row">주차면수 · <b>' + fmt(p.spaces) + "면</b></div>" +
+          '<div class="pop-row">' + esc(p.gu) + " " + esc(p.dong) + " · " + esc(p.type) + "</div>" +
+          '<span class="pop-badge ' + badgeCls + '">' + esc(p.category) + "</span>",
+        { maxWidth: 260 }
+      );
+      lotsCluster.addLayer(m);
+    });
+  }
+
+  function updateLotsVisibility() {
+    var shouldShow = map.getZoom() >= MARKER_ZOOM;
+    var isShown = map.hasLayer(lotsCluster);
+    if (shouldShow && !isShown) map.addLayer(lotsCluster);
+    if (!shouldShow && isShown) map.removeLayer(lotsCluster);
+  }
+
+  map.on("zoomend", function () {
+    updateLotsVisibility();
+    if (mode === "gu" && map.getZoom() < CITY_ZOOM) {
+      showCity();
+    }
+  });
+
+  // ---------- boot ----------
+  Promise.all([
+    fetch(GU_URL).then(function (r) { return r.json(); }),
+    fetch(DONG_URL).then(function (r) { return r.json(); }),
+    fetch(LOTS_URL).then(function (r) { return r.json(); }),
+  ])
+    .then(function (results) {
+      guFeatures = results[0].features || [];
+      dongFeatures = results[1].features || [];
+      lotFeatures = (results[2].features || []).filter(function (f) {
+        return f.geometry && f.geometry.type === "Point";
+      });
+
+      citySpacesTotal = guFeatures.reduce(function (sum, f) {
+        return sum + (guSpaces(f) || 0);
+      }, 0);
+
+      buildGuLayer();
+      buildLotsLayer();
+      showCity();
+      updateLotsVisibility();
+    })
     .catch(function (err) {
-      document.getElementById("list").innerHTML =
-        '<div class="empty">데이터를 불러오지 못했습니다.</div>';
+      hint.textContent = "데이터를 불러오지 못했습니다.";
       console.error(err);
     });
 })();
