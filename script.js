@@ -242,10 +242,18 @@
     map.setView(SEOUL_CENTER, SEOUL_ZOOM);
   }
 
-  function drillIntoGu(f) {
+  // opts.fly (default true): fit the view to the gu's dong bounds. Pass false when
+  // the switch was caused by the user panning (they've already framed the view
+  // themselves — forcing a flyTo would fight the drag).
+  function drillIntoGu(f, opts) {
+    var fly = !opts || opts.fly !== false;
     mode = "gu";
     currentGu = guName(f);
     if (guLayer) map.removeLayer(guLayer);
+    if (dongLayer) {
+      map.removeLayer(dongLayer);
+      dongLayer = null;
+    }
 
     var subset = dongFeatures.filter(function (d) {
       return d.properties.gu === currentGu;
@@ -295,7 +303,7 @@
     setHud(currentGu, guSpaces(f), "총 주차가능면수 (" + subset.length + "개 동)");
     setLegend(currentGu + " 동별 주차면수", dScale);
 
-    if (dongLayer.getBounds().isValid()) {
+    if (fly && dongLayer.getBounds().isValid()) {
       map.flyToBounds(dongLayer.getBounds(), { padding: [24, 24], duration: 0.6 });
     }
   }
@@ -364,6 +372,18 @@
       var c = map.getCenter();
       var f = guAtLngLat(c.lng, c.lat);
       if (f) drillIntoGu(f);
+    }
+  });
+
+  // dragging while a gu's dongs are on screen: if the pan carries the map center
+  // into a different gu, swap the dong set shown to match (without fighting the
+  // user's own drag by re-flying the view).
+  map.on("moveend", function () {
+    if (mode !== "gu") return;
+    var c = map.getCenter();
+    var f = guAtLngLat(c.lng, c.lat);
+    if (f && guName(f) !== currentGu) {
+      drillIntoGu(f, { fly: false });
     }
   });
 
