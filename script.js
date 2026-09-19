@@ -13,10 +13,12 @@
   var SEOUL_ZOOM = 11;
 
   // ---------- map & base tiles (OpenStreetMap) ----------
-  var map = L.map("map", { zoomControl: false, doubleClickZoom: false }).setView(
-    SEOUL_CENTER,
-    SEOUL_ZOOM
-  );
+  var map = L.map("map", {
+    zoomControl: false,
+    doubleClickZoom: false, // native dblclick-zoom is replaced by our gu/dong drill-down
+    scrollWheelZoom: true,  // mouse-wheel / trackpad scroll zoom
+    wheelPxPerZoomLevel: 90, // slightly less twitchy than Leaflet's default 60
+  }).setView(SEOUL_CENTER, SEOUL_ZOOM);
   L.control.zoom({ position: "bottomleft" }).addTo(map);
   L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
