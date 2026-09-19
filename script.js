@@ -8,6 +8,7 @@
   var BIN = 2500;          // 2,500면 단위로 끊어서 색상 진하기 표시
   var MARKER_ZOOM = 15;    // 이 줌 레벨부터 개별 주차장 위치 표시
   var CITY_ZOOM = 12;      // 이 줌 레벨보다 아래로 내려가면 자치구 뷰로 자동 복귀
+  var DRILL_ZOOM = 13;     // 스크롤로 이 줌 레벨 이상 확대하면 지도 중심이 속한 구로 자동 드릴다운
 
   var SEOUL_CENTER = [37.5665, 126.978];
   var SEOUL_ZOOM = 11;
@@ -62,6 +63,46 @@
         return greenFor(t);
       },
     };
+  }
+
+  // ---------- point-in-polygon (used to figure out which gu the map center is over
+  // when the user zooms in with the scroll wheel instead of double-clicking) ----------
+  function rayCast(pt, ring) {
+    var x = pt[0], y = pt[1];
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1];
+      var xj = ring[j][0], yj = ring[j][1];
+      var intersect = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function polyContains(pt, rings) {
+    if (!rayCast(pt, rings[0])) return false;
+    for (var k = 1; k < rings.length; k++) {
+      if (rayCast(pt, rings[k])) return false; // inside a hole
+    }
+    return true;
+  }
+
+  function pointInFeature(pt, geometry) {
+    if (!geometry) return false;
+    if (geometry.type === "Polygon") return polyContains(pt, geometry.coordinates);
+    if (geometry.type === "MultiPolygon") {
+      return geometry.coordinates.some(function (rings) {
+        return polyContains(pt, rings);
+      });
+    }
+    return false;
+  }
+
+  function guAtLngLat(lng, lat) {
+    for (var i = 0; i < guFeatures.length; i++) {
+      if (pointInFeature([lng, lat], guFeatures[i].geometry)) return guFeatures[i];
+    }
+    return null;
   }
 
   function fmt(n) {
@@ -315,6 +356,14 @@
     updateLotsVisibility();
     if (mode === "gu" && map.getZoom() < CITY_ZOOM) {
       showCity();
+      return;
+    }
+    // scroll-zoom (or pinch) past DRILL_ZOOM while still on the city view: drill into
+    // whichever gu the map is now centered on, same as a double-click would.
+    if (mode === "city" && map.getZoom() >= DRILL_ZOOM) {
+      var c = map.getCenter();
+      var f = guAtLngLat(c.lng, c.lat);
+      if (f) drillIntoGu(f);
     }
   });
 
