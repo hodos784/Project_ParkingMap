@@ -1,18 +1,81 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>서울시 주차장 지도</title>
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
-  <link rel="stylesheet" href="style.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>서울 주차장 지도</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
 </head>
 <body>
-  <div id="map"></div>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
-  <script src="script.js"></script>
+
+<div class="app">
+  <button class="menu-btn" id="menuBtn" aria-label="메뉴 열기">☰</button>
+
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-head">
+      <p class="eyebrow">Seoul Parking Census</p>
+      <h1>서울 주차장 지도</h1>
+      <div class="stats">
+        <div class="stat"><span class="num" id="statCount">–</span><span class="lbl">표시된 주차장</span></div>
+        <div class="stat"><span class="num" id="statSpaces">–</span><span class="lbl">총 주차면수</span></div>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label for="q">검색 (이름 · 주소)</label>
+        <input type="search" id="q" placeholder="예: 시청, 강남대로…">
+      </div>
+      <div class="field">
+        <label>운영 구분</label>
+        <div class="chips" id="catChips">
+          <button class="chip active" data-cat="all">전체</button>
+          <button class="chip" data-cat="공영"><span class="dot"></span>공영</button>
+          <button class="chip" data-cat="민영"><span class="dot"></span>민영</button>
+        </div>
+      </div>
+      <div class="field">
+        <label for="typeSel">시설 유형</label>
+        <select id="typeSel">
+          <option value="all">전체 유형</option>
+          <option value="노상">노상주차장</option>
+          <option value="노외">노외주차장</option>
+          <option value="부설">부설주차장</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="guSel">자치구</label>
+        <select id="guSel">
+          <option value="all">서울 전체 (25개 구)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="list-wrap">
+      <p class="list-title" id="listTitle">목록</p>
+      <div id="list"></div>
+    </div>
+
+    <div class="footnote">
+      전국주차장정보표준데이터(data.go.kr) 기준, 2026-04~08월 갱신분 · 위경도 결측으로 지도에 표시되지 않는 항목 49건(전량 마포구) 제외
+    </div>
+  </aside>
+
+  <div class="map-pane">
+    <div id="map"></div>
+    <div class="legend">
+      <div class="legend-row"><span class="legend-dot dot-public"></span>공영주차장</div>
+      <div class="legend-row"><span class="legend-dot dot-private"></span>민영주차장</div>
+    </div>
+  </div>
+</div>
+
+<script src="script.js"></script>
 </body>
 </html>
