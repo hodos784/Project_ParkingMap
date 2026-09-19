@@ -44,3 +44,14 @@ html, body { margin: 0; height: 100%; }
   font-size: 13px;
   font-family: sans-serif;
 }
+@media (max-width: 480px) {
+  .legend {
+    font-size: 11px;
+    padding: 6px 10px;
+    line-height: 16px;
+  }
+  .legend i {
+    width: 12px;
+    height: 12px;
+  }
+}
