@@ -1,10 +1,8 @@
-const VWORLD_KEY = "590391A6-092B-4FDF-BF48-0D94CAFB720D";
-
 const map = L.map('map', { doubleClickZoom: false }).setView([37.5665, 126.9780], 11);
 
-// --- 배경지도: VWorld 백지도 ---
-L.tileLayer(`https://api.vworld.kr/req/wmts/1.0.0/${VWORLD_KEY}/white/{z}/{y}/{x}.png`, {
-  attribution: '&copy; VWorld (국토교통부 국토지리정보원)',
+// --- 배경지도: OpenStreetMap (해외 접속도 문제없이 표시됨) ---
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
   maxZoom: 19
 }).addTo(map);
 
