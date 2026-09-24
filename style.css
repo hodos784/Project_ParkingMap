@@ -131,21 +131,58 @@ body{
   color:var(--ink);
   margin:0 0 8px;
 }
-.ramp{
-  height:10px;
-  border-radius:6px;
-  margin-bottom:4px;
-}
-.ramp-labels{
+.legend-steps{
   display:flex;
-  justify-content:space-between;
-  font-size:10.5px;
+  flex-direction:column;
+  gap:3px;
   margin-bottom:10px;
 }
+.legend-step{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  font-size:11px;
+}
+.legend-swatch{
+  width:16px;
+  height:12px;
+  border-radius:3px;
+  flex:none;
+  border:1px solid rgba(0,0,0,.08);
+}
 .legend-row{display:flex; align-items:center; gap:8px; margin:5px 0;}
+.legend-row.marker-row{padding-top:4px; border-top:1px solid var(--line);}
+.legend-row.marker-row:first-of-type{border-top:none; padding-top:0;}
 .legend-dot{width:10px;height:10px;border-radius:50%; flex:none;}
 .legend-dot.dot-public{background:var(--accent);}
 .legend-dot.dot-private{background:var(--accent-2);}
+
+/* ---------- gu / dong name labels ---------- */
+.leaflet-tooltip.gu-label,
+.leaflet-tooltip.dong-label{
+  background:rgba(255,255,255,.82);
+  border:none;
+  box-shadow:none;
+  color:#16231f;
+  font-family:"Noto Sans KR", sans-serif;
+  font-weight:600;
+  padding:1px 6px;
+  border-radius:5px;
+  white-space:nowrap;
+  pointer-events:none;
+}
+.leaflet-tooltip.gu-label{
+  font-size:12.5px;
+}
+.leaflet-tooltip.dong-label{
+  font-size:10.5px;
+  font-weight:500;
+  background:rgba(255,255,255,.75);
+}
+.leaflet-tooltip.gu-label::before,
+.leaflet-tooltip.dong-label::before{
+  display:none; /* no little arrow */
+}
 
 /* ---------- Choropleth ---------- */
 .gu-outline{

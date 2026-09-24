@@ -26,41 +26,88 @@
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
 
-  // ---------- sequential color ramp: one hue (accent green), light -> dark ----------
-  // magnitude is bucketed into BIN(=2,500면) steps before mapping to lightness,
-  // so the fill genuinely steps rather than reading as continuous.
-  function greenFor(t) {
-    t = Math.max(0, Math.min(1, t));
-    var s = 22 + t * 40; // 22% -> 62% saturation
-    var l = 90 - t * 66; // 90% -> 24% lightness
-    return "hsl(165, " + s.toFixed(1) + "%, " + l.toFixed(1) + "%)";
-  }
+  // ---------- sequential color ramp: one hue (teal-green), a small set of
+  // clearly-separated steps rather than a smooth gradient, so neighboring gu/dong
+  // are actually easy to tell apart at a glance. ----------
+  var STEP_COLORS = [
+    "#eef6f1", // lightest
+    "#c3e6d5",
+    "#8fd0b2",
+    "#57ad8a",
+    "#2c7e5e",
+    "#12503a", // darkest
+  ];
 
   function binValue(v) {
     return Math.floor((v || 0) / BIN) * BIN;
   }
 
-  // builds a color-getter scaled to the min/max *within the given feature set*
+  // Quantile (equal-count) binning into up to STEP_COLORS.length buckets, computed
+  // fresh for *this* feature set (city-wide gu totals, or one gu's dong totals) so
+  // the steps stay well distributed instead of being dominated by outliers.
   function makeScale(features, propGetter) {
-    var bins = features
+    var present = features
       .map(function (f) {
         var v = propGetter(f);
         return v == null ? null : binValue(v);
       })
       .filter(function (v) {
         return v != null;
+      })
+      .sort(function (a, b) {
+        return a - b;
       });
-    var min = bins.length ? Math.min.apply(null, bins) : 0;
-    var max = bins.length ? Math.max.apply(null, bins) : BIN;
-    if (max === min) max = min + BIN;
+
+    var n = present.length;
+    var k = Math.min(STEP_COLORS.length, n || 1);
+    var breaks = [n ? present[0] : 0];
+    for (var i = 1; i < k; i++) {
+      breaks.push(present[Math.min(n - 1, Math.floor((i * n) / k))]);
+    }
+    breaks.push(n ? present[n - 1] : BIN);
+
+    // collapse breakpoints that landed on the same value (heavy ties) so buckets
+    // never come out empty/duplicate
+    var uniq = [breaks[0]];
+    for (var b = 1; b < breaks.length; b++) {
+      if (breaks[b] !== uniq[uniq.length - 1]) uniq.push(breaks[b]);
+    }
+    if (uniq.length < 2) uniq.push(uniq[0] + BIN);
+    breaks = uniq;
+    k = breaks.length - 1;
+
+    // Spread across the FULL light->dark palette even when there are only a
+    // couple of buckets, instead of always starting from the lightest swatch —
+    // that's what keeps a gu with a narrow range (e.g. only 3 dong buckets)
+    // from ending up all-pale and hard to tell apart.
+    function colorForBucket(idx) {
+      if (k <= 1) return STEP_COLORS[STEP_COLORS.length - 1];
+      var pos = Math.round((idx * (STEP_COLORS.length - 1)) / (k - 1));
+      return STEP_COLORS[pos];
+    }
+
+    function bucketIndex(v) {
+      var b = binValue(v);
+      for (var idx = 0; idx < k - 1; idx++) {
+        if (b < breaks[idx + 1]) return idx;
+      }
+      return k - 1;
+    }
+
     return {
-      min: min,
-      max: max,
+      min: breaks[0],
+      max: breaks[breaks.length - 1],
+      breaks: breaks,
+      k: k,
       color: function (v) {
-        if (v == null) return "#cccccc";
-        var b = binValue(v);
-        var t = (b - min) / (max - min);
-        return greenFor(t);
+        return v == null ? "#cccccc" : colorForBucket(bucketIndex(v));
+      },
+      steps: function () {
+        var out = [];
+        for (var idx = 0; idx < k; idx++) {
+          out.push({ color: colorForBucket(idx), from: breaks[idx], to: breaks[idx + 1], last: idx === k - 1 });
+        }
+        return out;
       },
     };
   }
@@ -121,9 +168,7 @@
   var backBtn = document.getElementById("backBtn");
   var hint = document.getElementById("hint");
   var legendTitle = document.getElementById("legendTitle");
-  var rampEl = document.getElementById("ramp");
-  var rampMin = document.getElementById("rampMin");
-  var rampMax = document.getElementById("rampMax");
+  var legendSteps = document.getElementById("legendSteps");
 
   function setHud(title, spaces, label) {
     hudTitle.textContent = title;
@@ -133,10 +178,17 @@
 
   function setLegend(title, scale) {
     legendTitle.textContent = title;
-    rampEl.style.background =
-      "linear-gradient(to right, " + greenFor(0) + ", " + greenFor(1) + ")";
-    rampMin.textContent = fmt(scale.min) + "면";
-    rampMax.textContent = fmt(scale.max) + "면+";
+    legendSteps.innerHTML = "";
+    scale.steps().forEach(function (s) {
+      var row = document.createElement("div");
+      row.className = "legend-step";
+      var label = s.last
+        ? fmt(s.from) + "면+"
+        : fmt(s.from) + "–" + fmt(s.to) + "면";
+      row.innerHTML =
+        '<span class="legend-swatch" style="background:' + s.color + '"></span>' + label;
+      legendSteps.appendChild(row);
+    });
   }
 
   // ---------- click vs. double-click (map's own dblclick zoom is disabled above) ----------
@@ -201,6 +253,12 @@
           };
         },
         onEachFeature: function (f, layer) {
+          layer.bindTooltip(guName(f), {
+            permanent: true,
+            direction: "center",
+            className: "gu-label",
+            interactive: false,
+          });
           layer.on("mouseover", function () {
             layer.setStyle({ weight: 2.4 });
           });
@@ -272,6 +330,12 @@
           };
         },
         onEachFeature: function (d, layer) {
+          layer.bindTooltip(dongName(d), {
+            permanent: true,
+            direction: "center",
+            className: "dong-label",
+            interactive: false,
+          });
           layer.on("mouseover", function () {
             layer.setStyle({ weight: 2 });
           });
